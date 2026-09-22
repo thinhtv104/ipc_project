@@ -1,0 +1,23 @@
+# Object files
+*.o
+*.obj
+
+# Executables
+server
+server.exe
+client
+client.exe
+test_client
+test_client.exe
+
+# Build directories
+build/
+bin/
+
+# Temporary and IDE files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+*.log
