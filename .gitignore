@@ -21,3 +21,11 @@ bin/
 *~
 .DS_Store
 *.log
+
+service_tests
+*.exe
+server-test.log
+
+gui_client
+gui-server.log
+__pycache__/

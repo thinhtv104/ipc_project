@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include "protocol.h"
 #include "ipc_channel.h"
 
@@ -14,7 +15,16 @@
  * 3. Chờ và in kết quả phản hồi từ Server (ipc_recv).
  * ========================================================================= */
 
+static void timeout_handler(int sig) {
+    (void)sig;
+    static const char message[] = "Server khong phan hoi trong 5 giay.\n";
+    ssize_t written = write(STDERR_FILENO, message, sizeof(message) - 1);
+    (void)written;
+    _exit(EXIT_FAILURE);
+}
+
 int main(void) {
+    signal(SIGALRM, timeout_handler);
     printf("=============================================\n");
     printf("           IPC CLIENT (Dev 4 CLI)            \n");
     printf("=============================================\n");
@@ -40,7 +50,15 @@ int main(void) {
             break;
         }
 
-        input[strcspn(input, "\n")] = '\0';
+        if (!strchr(input, '\n') && !feof(stdin)) {
+            int ch = getchar();
+            if (ch != '\n' && ch != EOF) {
+                while ((ch = getchar()) != '\n' && ch != EOF) {}
+                fprintf(stderr, "Lenh qua dai (toi da 511 byte).\n");
+                continue;
+            }
+        }
+        input[strcspn(input, "\r\n")] = '\0';
         if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0) {
             break;
         }
@@ -53,18 +71,21 @@ int main(void) {
         request.mtype = SERVER_MSG_TYPE;
         request.client_pid = getpid();
         request.status_code = STATUS_OK;
-        strncpy(request.payload, input, sizeof(request.payload) - 1);
+        memcpy(request.payload, input, strlen(input) + 1);
 
         if (ipc_send(qid, &request) < 0) {
             fprintf(stderr, "Gui yeu cau that bai.\n");
             continue;
         }
 
+        alarm(5);
         if (ipc_recv(qid, &response, (long)getpid()) < 0) {
+            alarm(0);
             fprintf(stderr, "Nhan phan hoi that bai.\n");
             continue;
         }
 
+        alarm(0);
         printf("[%d] %s\n", response.status_code, response.payload);
     }
 

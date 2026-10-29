@@ -33,6 +33,10 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    static const char *expected[] = {
+        "HELLO FROM CLIENT", "tseuqer lellarap", "length=21 words=5", "42"
+    };
+    fflush(stdout);
     pid_t children[CLIENT_COUNT];
     for (int i = 0; i < CLIENT_COUNT; ++i) {
         children[i] = fork();
@@ -45,6 +49,7 @@ int main(void) {
         }
 
         if (children[i] == 0) {
+            alarm(10);
             msg_packet_t request;
             msg_packet_t response;
             const char *command = commands[i % (sizeof(commands) / sizeof(commands[0]))];
@@ -64,6 +69,11 @@ int main(void) {
                 _exit(EXIT_FAILURE);
             }
 
+            if (response.status_code != STATUS_OK ||
+                strcmp(response.payload, expected[i % 4]) != 0) {
+                fprintf(stderr, "Sai ket qua: %s\n", response.payload);
+                _exit(EXIT_FAILURE);
+            }
             printf("Client %d | %s | status=%d | %s\n",
                    (int)getpid(), command, response.status_code, response.payload);
             fflush(stdout);

@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <strings.h>
+#include <math.h>
+#include <errno.h>
 
 /* =========================================================================
  * MODULE 2 (Dev 2 làm chủ): src/service_handler.c
@@ -21,12 +24,19 @@ static int handle_calc(const char *args, char *out) {
         return STATUS_ERROR_SYNTAX;
     }
 
-    double a, b;
-    char op;
-    if (sscanf(args, "%lf %c %lf", &a, &op, &b) != 3) {
-        snprintf(out, MAX_PAYLOAD_SIZE, "Loi cu phap: CALC <so1> <phep_toan> <so2> (VD: CALC 12 + 30)");
-        return STATUS_ERROR_SYNTAX;
-    }
+    char *end;
+    errno = 0;
+    double a = strtod(args, &end);
+    if (end == args || errno == ERANGE || !isfinite(a)) goto syntax;
+    while (isspace((unsigned char)*end)) ++end;
+    char op = *end;
+    if (!op) goto syntax;
+    args = end + 1;
+    errno = 0;
+    double b = strtod(args, &end);
+    if (end == args || errno == ERANGE || !isfinite(b)) goto syntax;
+    while (isspace((unsigned char)*end)) ++end;
+    if (*end) goto syntax;
 
     double result = 0.0;
     switch (op) {
@@ -49,19 +59,26 @@ static int handle_calc(const char *args, char *out) {
             result = a / b;
             break;
         case '%':
-            if ((long)b == 0) {
-                snprintf(out, MAX_PAYLOAD_SIZE, "Loi toan hoc: Phep chia lay du cho 0");
+            if (b == 0.0 || trunc(a) != a || trunc(b) != b) {
+                snprintf(out, MAX_PAYLOAD_SIZE, "Loi: %% yeu cau hai so nguyen, so chia khac 0");
                 return STATUS_ERROR_CALC;
             }
-            snprintf(out, MAX_PAYLOAD_SIZE, "%ld", (long)a % (long)b);
-            return STATUS_OK;
+            result = fmod(a, b);
+            break;
         default:
             snprintf(out, MAX_PAYLOAD_SIZE, "Loi: Toan tu '%c' khong hop le (+, -, *, /, %%)", op);
             return STATUS_ERROR_SYNTAX;
     }
 
-    snprintf(out, MAX_PAYLOAD_SIZE, "%g", result);
+    if (!isfinite(result)) {
+        snprintf(out, MAX_PAYLOAD_SIZE, "Loi: Ket qua vuot gioi han so hoc");
+        return STATUS_ERROR_CALC;
+    }
+    snprintf(out, MAX_PAYLOAD_SIZE, "%.15g", result);
     return STATUS_OK;
+syntax:
+    snprintf(out, MAX_PAYLOAD_SIZE, "Cu phap: CALC <so1> <toan tu> <so2>; chi nhan so huu han");
+    return STATUS_ERROR_SYNTAX;
 }
 
 /* Xử lý lệnh UPPER <chuỗi> */
@@ -151,6 +168,10 @@ int handle_service(const char *in, char *out) {
         args++;
     }
 
+    if (strcasecmp(cmd, "HELP") == 0) {
+        snprintf(out, MAX_PAYLOAD_SIZE, "CALC <a> <+|-|*|/|%%> <b> | UPPER <text> | REVERSE <text> | STATS <text> | HELP");
+        return STATUS_OK;
+    }
     if (strcasecmp(cmd, "CALC") == 0) {
         return handle_calc(args, out);
     } else if (strcasecmp(cmd, "UPPER") == 0) {

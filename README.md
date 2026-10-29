@@ -18,7 +18,7 @@ ipc_project/
 │   ├── server.c             # Dev 3 code
 │   ├── client.c             # Dev 4 code
 │   └── test_client.c        # Dev 4 code (tool test đa tiến trình bằng C)
-├── Makefile                 # Tạo sẵn từ đầu, không sửa thêm
+├── Makefile                 # Build và kiểm thử
 ├── .gitignore
 └── README.md
 ```
@@ -87,3 +87,79 @@ ipc_project/
   ```bash
   make clean
   ```
+
+
+## Bản hoàn thiện: chạy và kiểm thử
+
+Yêu cầu: Linux (Ubuntu, Debian hoặc WSL2), GCC, Make và Bash. System V
+Message Queue không chạy trực tiếp bằng trình biên dịch Windows.
+
+```bash
+make
+# Terminal 1
+./server
+# Terminal 2
+./client
+```
+
+Trong client, nhập `HELP` để xem lệnh, `quit` hoặc `exit` để thoát:
+
+```text
+CALC 12 + 30
+CALC 10 % 3
+UPPER hello world
+REVERSE hello
+STATS this is a stress test
+```
+
+Lệnh không phân biệt chữ hoa/thường. `CALC` hỗ trợ số thực hữu hạn;
+`%` yêu cầu hai giá trị nguyên, số chia khác 0. Dữ liệu thừa, chia cho 0
+và kết quả vượt giới hạn đều trả lỗi. `UPPER`, `REVERSE`, `STATS` hiện
+xử lý theo byte/ASCII; chưa hỗ trợ chuyển hoa hoặc đảo chữ tiếng Việt UTF-8.
+Mỗi yêu cầu tối đa 511 byte. Client thoát nếu server không trả lời trong 5 giây.
+
+```bash
+make test       # Kiểm thử dịch vụ, CLI, 40 client, server trùng và dọn hàng đợi
+make clean
+```
+
+Có thể chạy `make test` trên Ubuntu để kiểm tra toàn bộ phần C và IPC.
+Cấu hình GitHub Actions chưa được tải lên vì quyền đăng nhập hiện tại không
+cho phép tạo workflow. Bộ kiểm thử tải kiểm tra cả mã trạng thái và nội dung
+phản hồi; mỗi tiến trình kiểm thử có giới hạn 10 giây.
+
+### Quản lý tài nguyên
+
+- Hàng đợi chỉ cho tài khoản hiện tại truy cập (0600).
+- Server tạo hàng đợi độc quyền; server thứ hai sẽ báo lỗi.
+- Giới hạn 32 worker đồng thời; thu hồi tiến trình con đã kết thúc.
+- Chỉ server cha xóa hàng đợi khi nhận Ctrl+C hoặc SIGTERM.
+- Gửi không chặn: hàng đợi đầy sẽ trả lỗi thay vì treo tiến trình.
+- Kiểm tra kích thước gói tin, chuỗi kết thúc và PID trước khi xử lý.
+
+Sau khi server bị `kill -9`, hàng đợi có thể còn tồn tại. Dùng `ipcs -q`
+để xác định đúng hàng đợi của dự án, sau đó `ipcrm -q <qid>` trước khi chạy lại.
+Không xóa hàng đợi của ứng dụng khác. Khóa hiện vẫn dùng `/tmp` và project ID
+`I` để giữ nguyên giao thức gốc, nên chỉ chạy một bản dự án trên mỗi máy.
+
+### Phạm vi và giới hạn
+
+Cấu trúc `protocol.h` được giữ nguyên để tương thích với các module cũ.
+Định tuyến phản hồi vẫn dựa vào PID, mỗi client chỉ gửi một yêu cầu tại một
+thời điểm. Nếu client bị dừng trước khi đọc phản hồi, phản hồi có thể còn trong
+hàng đợi tới khi server tắt. Đây là ứng dụng IPC cục bộ phục vụ học tập, chưa
+có cơ chế xác thực từng thông điệp hoặc ID yêu cầu độc lập.
+
+
+## Giao diện IPC Studio
+
+Trên Ubuntu, cài `sudo apt install python3-tk`, sau đó chạy `make gui`.
+Giao diện có chọn dịch vụ, ví dụ nhập liệu, kết quả, lịch sử 200 yêu cầu gần
+nhất và kiểm thử 8 client. Ctrl+Enter để gửi. Giao diện không thay thế logic C:
+`gui.py` gọi `gui_client`, dùng đúng Message Queue và server C hiện có.
+
+Nút Bật server tạo một server do giao diện quản lý. Dừng server hoặc đóng
+cửa sổ sẽ dừng server này; server được mở từ terminal khác không bị dừng.
+Nếu server đã chạy, chỉ cần nhấn Kiểm tra kết nối. Log server của giao diện
+lưu tại `gui-server.log`. Các thao tác gửi và kiểm thử chạy nền để cửa sổ
+vẫn phản hồi. Trạng thái kết nối phản ánh lần kiểm tra/gửi gần nhất.

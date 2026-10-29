@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include "protocol.h"
@@ -21,16 +22,14 @@
  * ========================================================================= */
 
 int main(void) {
+    setvbuf(stdout, NULL, _IOLBF, 0);
     printf("=============================================\n");
     printf("           IPC SERVER (Dev 3 Main)           \n");
     printf("=============================================\n");
 
-    /* Tránh tạo Zombie Process khi tiến trình con kết thúc */
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = SIG_IGN;
-    sa.sa_flags = SA_NOCLDWAIT;
-    sigaction(SIGCHLD, &sa, NULL);
+    /* Bound concurrent workers; reap completed children before each request. */
+    unsigned workers = 0;
+    enum { MAX_WORKERS = 32 };
 
     /* 1. Khởi tạo kênh IPC (Dev 1) */
     int qid = ipc_init(1);
@@ -51,10 +50,22 @@ int main(void) {
         /* Nhận yêu cầu gửi tới server (mtype = SERVER_MSG_TYPE = 1) */
         if (ipc_recv(qid, &req, SERVER_MSG_TYPE) < 0) {
             /* Ngắt vòng lặp nếu có tín hiệu dừng hoặc lỗi hàng đợi */
+            if (errno == EBADMSG) continue;
             break;
         }
 
+        if (req.client_pid <= 1) continue;
+
         printf("[Server] <- Nhan request tu Client [%d]: \"%s\"\n", req.client_pid, req.payload);
+
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+            if (workers) --workers;
+        }
+        if (workers >= MAX_WORKERS) {
+            pid_t done;
+            do { done = waitpid(-1, NULL, 0); } while (done < 0 && errno == EINTR);
+            if (done > 0) --workers;
+        }
 
         /* 3. Tạo tiến trình con xử lý đa nhiệm (Concurrency qua fork) */
         pid_t pid = fork();
@@ -88,9 +99,11 @@ int main(void) {
 
             _exit(EXIT_SUCCESS);
         }
+        if (pid > 0) ++workers;
         /* Tiến trình cha tiếp tục vòng lặp để nhận request tiếp theo */
     }
 
+    ipc_destroy(qid);
     printf("[Server] Server ket thuc.\n");
     return EXIT_SUCCESS;
 }
